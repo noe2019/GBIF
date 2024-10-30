@@ -160,20 +160,6 @@ fig = px.line(
 fig.update_traces(line=dict(color="purple", width=4), marker=dict(size=8))
 st.plotly_chart(fig)
 
-# Recent Literature on Biodiversity Indicators for Species and Province
-st.subheader(f"Recent Literature on Biodiversity Indicators for {selected_species} in {region}")
-literature_data = {
-    "keywords": ["climate resilience", "species richness", "phenological shifts", "biodiversity indicators"],
-    "summary": [
-        "Studies indicate a strong correlation between climate resilience and biodiversity.",
-        "Species richness is a critical measure for ecosystem health.",
-        "Phenological shifts are observed as species respond to climate change."
-    ]
-}
-st.write("**Key Research Topics**:", ", ".join(literature_data["keywords"]))
-for i, summary in enumerate(literature_data["summary"]):
-    st.write(f"{i+1}. {summary}")
-
 # Footer and About
 st.sidebar.header("About")
 st.sidebar.markdown("""

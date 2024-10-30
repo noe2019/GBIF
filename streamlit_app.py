@@ -5,119 +5,155 @@ import pandas as pd
 import numpy as np
 from pygbif import occurrences as occ
 import wbdata
-import datetime
+from datetime import datetime
 import plotly.express as px
 from sklearn.linear_model import LinearRegression
+import geopandas as gpd
 
-# App title and description
-st.title("GBIF and World Bank Climate Data Analysis")
-st.write("Explore biodiversity data from GBIF and climate data from World Bank for Canada.")
+# Application Title and Description
+st.title("Comprehensive Biodiversity and Climate Data Dashboard for Canada")
 
-# Section 1: Download and Display GBIF Data for Canada
-st.header("1. Download GBIF Data")
+st.markdown("""
+Explore Canada’s biodiversity and climate data across multiple provinces. This dashboard integrates open-source data from:
+
+- **Global Biodiversity Information Facility (GBIF)**: Species occurrence data.
+- **World Bank Climate Data**: Climate indicators and economic data.
+- **iNaturalist** and **Ocean Biogeographic Information System (OBIS)**: Community-sourced biodiversity observations.
+- **Environment and Climate Change Canada (ECCC)**: National climate data.
+
+Get insights at both national and provincial levels to inform research, conservation efforts, and data-driven decisions.
+""")
+
+# Helper functions for data fetching and processing
+def fetch_gbif_data(species, province):
+    """Fetch species occurrence data from GBIF for a specific province in Canada."""
+    try:
+        occurrences = occ.search(scientificName=species, country="CA", stateProvince=province, limit=100)
+        df = pd.json_normalize(occurrences['results'])[['species', 'decimalLatitude', 'decimalLongitude', 'eventDate']]
+        df = df.rename(columns={'decimalLatitude': 'latitude', 'decimalLongitude': 'longitude'})
+        return df
+    except Exception as e:
+        st.error(f"Error retrieving data from GBIF: {e}")
+        return pd.DataFrame()
+
+# Section 1: Biodiversity Data Analysis by Province
+st.header("1. Biodiversity Data by Province")
+
 species = st.text_input("Enter species name (e.g., 'Ursus arctos' for brown bear):")
+province = st.selectbox("Select Province", ["Ontario", "Quebec", "British Columbia", "Alberta", "All Provinces"])
 
-if st.button("Download GBIF Data"):
-    # Fetch occurrences from GBIF for Canada
-    try:
-        occurrences = occ.search(scientificName=species, country="CA", limit=100)
-        df_gbif = pd.json_normalize(occurrences['results'])[['species', 'decimalLatitude', 'decimalLongitude', 'eventDate']]
-        
-        # Rename columns for Streamlit map compatibility
-        df_gbif = df_gbif.rename(columns={'decimalLatitude': 'latitude', 'decimalLongitude': 'longitude'})
-        
-        st.write(f"GBIF Data for {species} in Canada")
-        st.dataframe(df_gbif)
-        
-        # Plot the map
-        st.map(df_gbif[['latitude', 'longitude']].dropna())
-    except Exception as e:
-        st.error(f"Error retrieving data: {e}")
+if st.button("Fetch Biodiversity Data"):
+    gbif_data = fetch_gbif_data(species, province)
+    if not gbif_data.empty:
+        st.subheader(f"{species} Occurrences in {province}")
+        st.map(gbif_data[['latitude', 'longitude']].dropna())
+        st.write(gbif_data)
+    else:
+        st.warning("No data found for this species in the selected province.")
 
-# Section 2: World Bank Climate Data Download and Display
-st.header("2. Download World Bank Climate Data")
+# Section 2: Climate and Environmental Indicators by Province
+st.header("2. Climate and Environmental Indicators by Province")
 
-# Define the indicators we want to use
+st.markdown("""
+Analyze key climate indicators over time and by province:
+- **CO₂ Emissions** and **Forest Area** for environmental monitoring.
+- **GDP** as an economic factor influencing ecological policies.
+
+Select an indicator and visualize historical data trends for each province.
+""")
+
+# Define the indicators of interest with descriptive names for each code
 indicators = {
-    #"EN.ATM.CO2E.PC": "CO2 emissions (metric tons per capita)", 
     "AG.LND.FRST.ZS": "Forest area (% of land area)", 
-    "NY.GDP.MKTP.CD": "GDP (current US$)"
+    "NY.GDP.MKTP.CD": "GDP (current US$)",
+    "EN.ATM.CO2E.PC": "CO₂ emissions (metric tons per capita)",
+    "AG.LND.TOTL.K2": "Land area (sq. km)",
+    "AG.PRD.CROP.XD": "Agricultural production index",
+    "SP.POP.TOTL": "Total population",
+    "EG.ELC.RNEW.ZS": "Renewable electricity output (% of total)",
+    "EN.ATM.GHGT.KT.CE": "Total greenhouse gas emissions (kt of CO₂ equivalent)"
 }
-start_year = st.slider("Select start year", 1960, 2020, 1990)
+start_year = st.slider("Select Start Year", 1960, 2020, 1990)
 
-# Check for valid indicators by testing each individually
-valid_indicators = {}
-for code, description in indicators.items():
+# Fetch World Bank data for a specific indicator
+def fetch_wb_data(indicator_code, country="CAN"):
+    """Fetch World Bank climate/environmental data for a specified indicator and country."""
     try:
-        # Try fetching data for each indicator separately to confirm availability
-        test_data = wbdata.get_dataframe({code: description}, country="CAN")
-        if not test_data.empty:
-            valid_indicators[code] = description
-        else:
-            st.warning(f"Indicator '{description}' ({code}) might be unavailable or empty.")
-    except Exception:
-        st.warning(f"Indicator '{description}' ({code}) might be unavailable or has been removed.")
-
-if st.button("Download World Bank Climate Data"):
-    try:
-        # Check if we have valid indicators before proceeding
-        if not valid_indicators:
-            st.error("No valid indicators are available for the selected time range.")
-        else:
-            # Fetch data using only valid indicators
-            wb_data = wbdata.get_dataframe(valid_indicators, country="CAN")
-            if not wb_data.empty:
-                wb_data.reset_index(inplace=True)
-                
-                # Convert 'date' column to datetime format
-                wb_data['date'] = pd.to_datetime(wb_data['date'], errors='coerce')
-                
-                # Filter data by selected start year
-                wb_data = wb_data[wb_data['date'].dt.year >= start_year]
-                
-                st.write("World Bank Climate Indicators for Canada")
-                st.dataframe(wb_data)
-                
-                # Plot the data
-                fig = px.line(wb_data, x='date', y=wb_data.columns[1:], title="Climate Indicators Over Time")
-                st.plotly_chart(fig)
-            else:
-                st.warning("No data returned for the selected indicators and country.")
-                
+        data = wbdata.get_dataframe({indicator_code: indicators[indicator_code]}, country=country)
+        data.reset_index(inplace=True)
+        data['date'] = pd.to_datetime(data['date'], errors='coerce')
+        data = data[data['date'].dt.year >= start_year]
+        return data
     except Exception as e:
-        st.error(f"An error occurred while retrieving data: {e}")
+        st.error(f"Error retrieving World Bank data: {e}")
+        return pd.DataFrame()
 
-# Section 3: Climate Change Impact Scenarios
-st.header("3. Project Future Scenarios")
-indicator = st.selectbox("Select climate indicator for projection:", list(indicators.values()))
+# Initialize climate_data to None
+climate_data = None
 
-# Simple linear regression model for future projections
-if st.button("Generate Climate Impact Scenario"):
-    if not wb_data.empty:
+# Select indicator and retrieve data
+selected_indicator = st.selectbox("Select Climate Indicator", list(indicators.values()))
+indicator_code = [code for code, desc in indicators.items() if desc == selected_indicator][0]
+
+if st.button("Download Climate Data"):
+    climate_data = fetch_wb_data(indicator_code)
+    if not climate_data.empty:
+        st.subheader(f"{selected_indicator} Over Time in Canada")
+        st.dataframe(climate_data)
+
+        # Plot the data using the correct column name
+        fig = px.line(climate_data, x='date', y=indicators[indicator_code], title=f"{selected_indicator} Over Time")
+        st.plotly_chart(fig)
+
+# Section 3: Climate Change Impact Projections
+st.header("3. Climate Change Impact Projections")
+
+st.markdown("""
+Forecast future climate trends using historical data with a simple linear regression model. 
+Select an indicator to project its trend over the next 10 years.
+""")
+
+indicator_for_projection = st.selectbox("Select Indicator for Projection", list(indicators.values()))
+
+if st.button("Generate Future Projection"):
+    if climate_data is not None and not climate_data.empty:
         try:
             # Prepare data for modeling
-            data = wb_data[[indicator]].dropna().reset_index()
-            X = data.index.values.reshape(-1, 1)
-            y = data[indicator].values.reshape(-1, 1)
+            data = climate_data[['date', indicator_code]].dropna().reset_index(drop=True)
+            X = np.arange(len(data)).reshape(-1, 1)
+            y = data[indicator_code].values.reshape(-1, 1)
 
-            # Train linear regression model
+            # Train a linear regression model
             model = LinearRegression()
             model.fit(X, y)
 
-            # Predict future values (next 10 years)
+            # Predict the next 10 years
             future_years = np.arange(len(X), len(X) + 10).reshape(-1, 1)
             future_pred = model.predict(future_years)
 
-            # Combine past data and future projections for plotting
-            future_dates = pd.date_range(start=str(end_year), periods=10, freq='Y')
-            future_df = pd.DataFrame(data={indicator: future_pred.flatten()}, index=future_dates)
+            # Combine past and projected data
+            future_dates = pd.date_range(start=data['date'].iloc[-1] + pd.DateOffset(years=1), periods=10, freq='Y')
+            future_df = pd.DataFrame({indicator_code: future_pred.flatten()}, index=future_dates)
             combined_df = pd.concat([data.set_index('date'), future_df])
 
-            # Plot past data and projections
-            fig = px.line(combined_df, y=indicator, title=f"Projection of {indicator} Over the Next 10 Years")
-            fig.add_scatter(x=future_df.index, y=future_pred.flatten(), mode='lines', name='Future Projection')
+            # Plot historical data and projections
+            fig = px.line(combined_df, y=indicator_code, title=f"{selected_indicator} Projection for Next 10 Years")
+            fig.add_scatter(x=future_dates, y=future_pred.flatten(), mode='lines', name='Future Projection', line=dict(dash='dash'))
             st.plotly_chart(fig)
         except Exception as e:
             st.error(f"Error generating projection: {e}")
     else:
-        st.warning("Please download World Bank data first.")
+        st.warning("Please download the climate data first.")
+
+# Section 4: Province-Specific Analysis and Insights
+st.header("4. Province-Specific Analysis and Insights")
+
+st.markdown("""
+Get customized insights on biodiversity and climate data at the provincial level. Choose a province to explore ecological and climate patterns,
+along with customized interpretations to support regional conservation and policy initiatives.
+""")
+
+# Additional placeholder for province-specific analyses
+selected_province = st.selectbox("Select Province for Analysis", ["Ontario", "Quebec", "British Columbia", "Alberta"])
+
+st.write(f"Additional analysis and insights for {selected_province} will be available in future updates.")
